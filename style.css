@@ -34,6 +34,77 @@ body {
   }
 }
 
+/*
+ * Phase 1: scale with transform (not zoom) so Chrome/Safari agree on
+ * getBoundingClientRect + position:fixed for drag ghost and hint.
+ */
+.phase1-scale-outer {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+}
+
+.phase1-scale-inner {
+  --_p1-base: 0.52;
+  --phase1-scale: var(--_p1-base);
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 auto;
+  width: calc(100% / var(--phase1-scale));
+  height: calc(100% / var(--phase1-scale));
+  min-height: 0;
+  flex-direction: column;
+  gap: clamp(0.25rem, 1.2vmin, 0.75rem);
+  transform: scale(var(--phase1-scale));
+  transform-origin: top center;
+  will-change: transform;
+}
+
+/* Early Phase 1 (one picture at a time): ~50% larger than grid mode at same breakpoint */
+#screen-phase1[data-phase1-mode='singles'] .phase1-scale-inner {
+  --phase1-scale: min(0.96, calc(var(--_p1-base) * 1.5));
+}
+
+@media (min-width: 480px) {
+  .phase1-scale-inner {
+    --_p1-base: 0.56;
+  }
+}
+
+@media (min-width: 768px) {
+  .phase1-scale-inner {
+    --_p1-base: 0.6;
+  }
+}
+
+@media (min-height: 820px) {
+  .phase1-scale-inner {
+    --_p1-base: 0.66;
+  }
+}
+
+@media (max-height: 720px) {
+  .phase1-scale-inner {
+    --_p1-base: 0.48;
+  }
+}
+
+@media (max-height: 620px) {
+  .phase1-scale-inner {
+    --_p1-base: 0.42;
+  }
+}
+
+@media (max-height: 520px) {
+  .phase1-scale-inner {
+    --_p1-base: 0.36;
+  }
+}
+
 /* Animations and polish beyond Tailwind utilities */
 
 @keyframes shake {
@@ -100,7 +171,8 @@ body {
   animation: celebrate-pop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
-.ghost-cell {
+.ghost-cell,
+.ghost-reveal {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
@@ -145,7 +217,7 @@ body {
 .confetti-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10000;
+  z-index: 1000000;
   overflow: hidden;
   pointer-events: none;
 }
@@ -231,6 +303,157 @@ body {
   }
 }
 
+/* Phase 1 drag ghost on body — positioned with left/top (not transform). */
+.phase1-drag-floater {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  will-change: left, top;
+  box-shadow:
+    0 4px 6px rgba(30, 41, 59, 0.07),
+    0 18px 44px rgba(91, 33, 182, 0.22);
+}
+
+/* Phase 1 — title + suffix row */
+#screen-phase1 .phase1-header {
+  padding-top: clamp(0.25rem, 1.4vmin, 0.65rem);
+  padding-bottom: clamp(0.15rem, 1vmin, 0.45rem);
+}
+
+#screen-phase1 .phase1-instruction-title {
+  margin: 0;
+  max-width: 38rem;
+  font-size: clamp(0.9rem, 3.5vmin, 1.5rem);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #475569;
+}
+
+/* Suffix only (e.g. A N): same type as card prefix letter, teal */
+#screen-phase1 .phase1-instruction-line {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: clamp(0.05rem, 0.35vmin, 0.18rem);
+  flex-wrap: wrap;
+  overflow: visible;
+  background: none;
+}
+
+#screen-phase1 .phase1-accent {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: clamp(1rem, 4.5vmin, 2.25rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: #0d9488;
+}
+
+/* Animated hint ghost: purple tile (not the green header / filled slot) */
+.phase1-an-ghost-hint {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  box-sizing: border-box;
+  white-space: nowrap;
+  margin: 0;
+  border-radius: 0.75rem;
+  border: 2px dashed rgba(139, 92, 246, 0.55);
+  background: rgba(237, 233, 254, 0.45);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: rgba(91, 33, 182, 0.9);
+  box-shadow:
+    0 0 28px rgba(139, 92, 246, 0.22),
+    0 4px 14px rgba(30, 41, 59, 0.08);
+  will-change: transform, opacity;
+}
+
+/* After drop: no dashed box — green suffix same size as prefix letter (C, M, …) */
+/* Phase 2 — title + suffix accent aligned with phase 1 */
+#screen-phase2 .phase2-panel-header {
+  padding-top: clamp(0.1rem, 0.8vmin, 0.35rem);
+  padding-bottom: clamp(0.05rem, 0.5vmin, 0.2rem);
+}
+
+#screen-phase2 .phase2-instruction-title {
+  margin: 0;
+  max-width: 38rem;
+  font-size: clamp(0.9rem, 3.5vmin, 1.5rem);
+  font-weight: 600;
+  line-height: 1.35;
+  color: #475569;
+}
+
+#screen-phase2 .phase2-instruction-line {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: clamp(0.05rem, 0.35vmin, 0.18rem);
+  flex-wrap: wrap;
+  overflow: visible;
+  background: none;
+}
+
+#screen-phase2 .phase2-suffix-accent {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: clamp(1rem, 4.5vmin, 2.25rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: #0d9488;
+}
+
+#screen-phase2 .phase2-drop-slot.phase2-drop-slot-filled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  height: auto !important;
+  border-radius: 0 !important;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: clamp(1rem, 4.5vmin, 2.25rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: #0d9488;
+}
+
+#screen-phase1 .phase1-drop-slot.phase1-drop-slot-filled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  height: auto !important;
+  border-radius: 0 !important;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: clamp(1rem, 4.5vmin, 2.25rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.025em;
+  color: #0d9488;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .shake-anim,
   .choice-correct,
@@ -243,5 +466,9 @@ body {
   .confetti-flash {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  .phase1-an-ghost-hint {
+    display: none !important;
   }
 }

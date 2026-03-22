@@ -1,0 +1,21 @@
+---
+description: Phase 1 UI scaling — use transform scale, never CSS zoom
+alwaysApply: true
+---
+
+# Phase 1 scaling (Speller)
+
+Do **not** use non-standard CSS **`zoom`** on `#screen-phase1` or its content root.
+
+**Use instead:** a wrapper pair (e.g. `.phase1-scale-outer` + `.phase1-scale-inner`) with:
+
+- `transform: scale(var(--phase1-scale))` and `transform-origin: top center`
+- Inverse layout size so the visible result fills the slot:  
+  `width: calc(100% / var(--phase1-scale))` and `height: calc(100% / var(--phase1-scale))`
+- Outer: `flex: 1 1 0; min-height: 0; overflow: hidden; align-items: center` (or equivalent)
+
+**Why:** `zoom` makes **Chrome vs Safari** disagree on **`getBoundingClientRect()`** vs **`position: fixed`** (drag floater, animated hint on `body`, confetti). **`transform: scale()`** keeps one coordinate system for overlays and hit-testing.
+
+**Other screens** (e.g. `#screen-lesson`) may still use `zoom` unless migrated; this rule is strict for **Phase 1**.
+
+Breakpoints set **`--_p1-base`**; **`.phase1-scale-inner`** uses **`--phase1-scale: var(--_p1-base)`**. Early Phase 1 (singles): **`#screen-phase1[data-phase1-mode='singles']`** sets **`--phase1-scale: min(0.96, calc(var(--_p1-base) * 1.5))`** (~50% larger). `initPhase1()` in `script.js` toggles that attribute.
