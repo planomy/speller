@@ -8,6 +8,99 @@ body {
   box-sizing: border-box;
 }
 
+/* Splash: Bubl mascot — subtle vertical bounce */
+@keyframes bubl-bounce-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.5rem);
+  }
+}
+
+#screen-setup .bubl-mascot-bounce,
+#screen-stage-intro .bubl-mascot-bounce {
+  display: block;
+  background: transparent;
+  animation: bubl-bounce-soft 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Stage intro: speech bubble to the right of mascot; tail points left */
+#screen-stage-intro .stage-intro-bubble {
+  display: block;
+  padding: 0.7rem 1rem 0.7rem 1.1rem;
+  border-radius: 1.35rem;
+  border: 3px solid #1e293b;
+  background: #fffdf8;
+  box-shadow: 0 5px 0 #1e293b;
+}
+
+#screen-stage-intro .stage-intro-bubble::after {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  border-top: 12px solid transparent;
+  border-bottom: 12px solid transparent;
+  border-right: 14px solid #1e293b;
+}
+
+/* GO must stay above mascot row / bubble tails for hit-testing */
+#btn-stage-intro-go {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+#screen-stage-intro .stage-intro-bubble::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  z-index: 1;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-right: 9px solid #fffdf8;
+}
+
+/* Phase 2 (Stage 3): word photo spins on the vertical axis when each new word loads */
+#phase2-image-wrap.phase2-image-3d-wrap {
+  perspective: min(960px, 150vw);
+  transform-style: preserve-3d;
+}
+
+@keyframes phase2-image-spin-y {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(1440deg);
+  }
+}
+
+#phase2-image.phase2-image-spin-y-anim {
+  transform-origin: center center;
+  transform-style: preserve-3d;
+  animation: phase2-image-spin-y 2.5s cubic-bezier(0.18, 0.72, 0.32, 1) forwards;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #phase2-image.phase2-image-spin-y-anim {
+    animation: none;
+    transform: none;
+    will-change: auto;
+  }
+}
+
 /*
  * Setup / done screens stay full size. Only the lesson (activity) is scaled down
  * so handshapes + square picture row fit in one viewport (reflows with zoom).
@@ -59,6 +152,9 @@ body {
   min-height: 0;
   flex-direction: column;
   gap: clamp(0.25rem, 1.2vmin, 0.75rem);
+  /* Inset so emerald completion rings (ring-4) aren’t clipped by .phase1-scale-outer */
+  padding-left: max(0.65rem, 1.6vmin);
+  padding-right: max(0.65rem, 1.6vmin);
   transform: scale(var(--phase1-scale));
   transform-origin: top center;
   will-change: transform;
@@ -67,6 +163,30 @@ body {
 /* Early Phase 1 (one picture at a time): ~50% larger than grid mode at same breakpoint */
 #screen-phase1[data-phase1-mode='singles'] .phase1-scale-inner {
   --phase1-scale: min(0.96, calc(var(--_p1-base) * 1.5));
+}
+
+@keyframes phase1-card-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * min(3.5rem, 11vmin)));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.phase1-card.phase1-card-enter {
+  animation: phase1-card-slide-down 0.95s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--phase1-card-i, 0) * 0.1s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase1-card.phase1-card-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @media (min-width: 480px) {
@@ -315,6 +435,19 @@ body {
     0 18px 44px rgba(91, 33, 182, 0.22);
 }
 
+/* Phase 2 letter buttons: same positioning model — no transform so grab offset matches the painted box. */
+.phase2-letter-drag-floater {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transform: none !important;
+  will-change: left, top;
+  box-shadow:
+    0 4px 6px rgba(30, 41, 59, 0.07),
+    0 12px 28px rgba(91, 33, 182, 0.18);
+}
+
 /* Phase 1 — title + suffix row */
 #screen-phase1 .phase1-header {
   padding-top: clamp(0.25rem, 1.4vmin, 0.65rem);
@@ -361,16 +494,16 @@ body {
   box-sizing: border-box;
   white-space: nowrap;
   margin: 0;
-  border-radius: 0.75rem;
-  border: 2px dashed rgba(139, 92, 246, 0.55);
+  border-radius: 1.5rem;
+  border: 4px dashed rgba(139, 92, 246, 0.55);
   background: rgba(237, 233, 254, 0.45);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-weight: 800;
   letter-spacing: -0.025em;
   color: rgba(91, 33, 182, 0.9);
   box-shadow:
-    0 0 28px rgba(139, 92, 246, 0.22),
-    0 4px 14px rgba(30, 41, 59, 0.08);
+    0 0 56px rgba(139, 92, 246, 0.22),
+    0 8px 28px rgba(30, 41, 59, 0.08);
   will-change: transform, opacity;
 }
 
@@ -447,7 +580,7 @@ body {
   height: auto !important;
   border-radius: 0 !important;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: clamp(1rem, 4.5vmin, 2.25rem);
+  font-size: clamp(2rem, 9vmin, 4.5rem);
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.025em;
@@ -470,5 +603,9 @@ body {
 
   .phase1-an-ghost-hint {
     display: none !important;
+  }
+
+  #screen-setup .bubl-mascot-bounce {
+    animation: none !important;
   }
 }

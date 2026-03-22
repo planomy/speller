@@ -1,11 +1,17 @@
 /**
- * Speller — word bank by suffix (lowercase keys).
+ * bubl — word bank by suffix (lowercase keys).
+ *
+ * App name: **bubl** · mascot character: **Bubl** · assets use prefix `bubl-` (e.g. images/bubl-mascot.png).
+ *
  * Image convention (easy to change later):
  *   Fingerspelling: images/a.png … images/z.png
  *   Word pictures:  images/{word}1.png, images/{word}2.png (correct pair)
  * Distractors for each word are picked from two other words in the same session (images/{other}1.png).
  * Optional teacher clip per word: teacherVideo: "videos/man.mp4" (omit or null to hide panel)
  */
+const BUBL_NAME = 'bubl';
+const BUBL_IMAGE = 'images/bubl-mascot.png';
+
 const WORD_BANK = {
   /* Teaching order M, C, P, F, R for phase 1 / 2 */
   an: [
@@ -184,9 +190,12 @@ function launchConfettiSpray(anchorElements, options) {
 
 const els = {
   setup: document.getElementById('screen-setup'),
+  stageIntro: document.getElementById('screen-stage-intro'),
+  stageIntroTitle: document.getElementById('stage-intro-title'),
+  stageIntroBubbleText: document.getElementById('stage-intro-bubble-text'),
+  btnStageIntroGo: document.getElementById('btn-stage-intro-go'),
   phase1: document.getElementById('screen-phase1'),
   phase2: document.getElementById('screen-phase2'),
-  phaseBridge: document.getElementById('screen-phase-bridge'),
   lesson: document.getElementById('screen-lesson'),
   done: document.getElementById('screen-done'),
   suffixInput: document.getElementById('suffix-input'),
@@ -202,7 +211,6 @@ const els = {
   phase2InstructionTitle: document.getElementById('phase2-instruction-title'),
   phase2Instruction: document.getElementById('phase2-instruction'),
   phase2LetterPicks: document.getElementById('phase2-letter-picks'),
-  btnPhaseBridge: document.getElementById('btn-phase-bridge'),
   progressDots: document.getElementById('progress-dots'),
   wordNum: document.getElementById('word-num'),
   suffixDisplay: document.getElementById('suffix-display'),
@@ -233,7 +241,10 @@ let phase2Index = 0;
 /** 'preview' | 'pick' */
 let phase2Mode = 'preview';
 let phase2AutoTimer = null;
-/** @type {{ tile: HTMLElement, floater: HTMLElement, dx: number, dy: number, pointerId: number, onMove: (ev: PointerEvent) => void, end: (ev: PointerEvent) => void } | null} */
+/**
+ * Phase 2 drag state; dx/dy = grab point inside chip (viewport px from tile top-left).
+ * @type {{ tile: HTMLElement, floater: HTMLElement, dx: number, dy: number, pointerId: number, lastX: number, lastY: number, floatW: number, floatH: number, onMove: (ev: PointerEvent) => void, end: (ev: PointerEvent) => void } | null}
+ */
 let phase2Drag = null;
 let phase1Drag = null;
 /** @type {{ rafId: number, ghost: HTMLElement } | null} */
@@ -254,10 +265,13 @@ const PHASE1_BANK_CLASS_FULL =
   'flex w-full min-w-0 flex-row flex-wrap content-center items-center justify-center gap-[clamp(0.35rem,1.4vmin,0.75rem)]';
 
 const PHASE1_SLOT_EMPTY_CLASS =
-  'phase1-drop-slot inline-flex h-[clamp(1.65rem,6.5vmin,2.65rem)] min-w-[clamp(3.2rem,26vmin,6.25rem)] w-auto max-w-full shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-violet-300 bg-violet-50/50 px-[clamp(0.35rem,1.8vmin,0.75rem)] font-black leading-none tracking-tight text-violet-700 [font-size:clamp(0.7rem,2.8vmin,1.15rem)]';
+  'phase1-drop-slot inline-flex h-[clamp(3.3rem,13vmin,5.3rem)] min-w-[clamp(6.4rem,52vmin,12.5rem)] w-auto max-w-full shrink-0 items-center justify-center rounded-2xl border-4 border-dashed border-violet-300 bg-violet-50/50 px-[clamp(0.7rem,3.6vmin,1.5rem)] font-black leading-none tracking-tight text-violet-700 [font-size:clamp(1.4rem,5.6vmin,2.3rem)]';
 
 const PHASE2_SLOT_EMPTY_CLASS =
   'phase2-drop-slot inline-flex h-[clamp(1.85rem,7.5vmin,2.85rem)] min-w-[clamp(1.85rem,7.5vmin,3rem)] w-auto max-w-full shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-violet-300 bg-violet-50/50 px-[clamp(0.25rem,1.2vmin,0.5rem)] font-display font-black leading-none tracking-tight text-violet-700 [font-size:clamp(1rem,4.5vmin,2.25rem)]';
+
+/** Must match `phase2-image-spin-y` duration in style.css */
+const PHASE2_IMAGE_SPIN_MS = 2500;
 
 function stopPhase1AnHint() {
   if (!phase1AnHint) return;
@@ -343,10 +357,15 @@ function normalizeSuffix(raw) {
 
 function cleanupPhase2Drag() {
   if (!phase2Drag) return;
-  const { floater, tile, onMove, end } = phase2Drag;
+  const { floater, tile, onMove, end, pointerId } = phase2Drag;
   window.removeEventListener('pointermove', onMove, { passive: false });
   window.removeEventListener('pointerup', end, true);
   window.removeEventListener('pointercancel', end, true);
+  try {
+    if (tile && tile.hasPointerCapture?.(pointerId)) tile.releasePointerCapture(pointerId);
+  } catch (_) {
+    /* ignore */
+  }
   if (floater && floater.parentNode) floater.remove();
   if (tile) tile.style.visibility = '';
   phase2Drag = null;
@@ -361,9 +380,9 @@ function showScreen(which) {
   }
   const map = {
     setup: els.setup,
+    stageIntro: els.stageIntro,
     phase1: els.phase1,
     phase2: els.phase2,
-    phaseBridge: els.phaseBridge,
     lesson: els.lesson,
     done: els.done,
   };
@@ -372,6 +391,60 @@ function showScreen(which) {
     const on = key === which;
     el.classList.toggle('hidden', !on);
     el.hidden = !on;
+  });
+}
+
+/**
+ * Mascot + STAGE N + instruction bubble; learner taps GO to continue.
+ * Stage 1 = before single-picture rounds; stage 2 = before all five cards in one row;
+ * stage 3 = before Phase 2 first-letter activity; stage 4 = before picture-match lesson.
+ * @param {1 | 2 | 3 | 4} stageNum
+ * @param {() => void} onComplete
+ */
+function runStageIntro(stageNum, onComplete) {
+  showScreen('stageIntro');
+
+  if (els.stageIntroTitle) els.stageIntroTitle.textContent = `STAGE ${stageNum}`;
+  if (els.stageIntroBubbleText) {
+    els.stageIntroBubbleText.textContent = 'Press GO when you are ready.';
+  }
+
+  /**
+   * Wire GO after two rAFs so the intro section is painted and hit-testable (fixes Stage 2 on
+   * WebKit after switching from Phase 1). Use onclick/onpointerup properties so each intro run
+   * replaces handlers; AbortSignal + abort() in the handler was unreliable here.
+   */
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const btn = document.getElementById('btn-stage-intro-go');
+      els.btnStageIntroGo = btn;
+      if (!btn || !els.stageIntro || els.stageIntro.classList.contains('hidden')) {
+        onComplete();
+        return;
+      }
+
+      btn.onclick = null;
+      btn.onpointerup = null;
+
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        btn.onclick = null;
+        btn.onpointerup = null;
+        onComplete();
+      };
+
+      btn.onclick = (e) => {
+        if (e instanceof MouseEvent && e.button !== 0) return;
+        finish();
+      };
+
+      btn.onpointerup = (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        finish();
+      };
+    });
   });
 }
 
@@ -684,8 +757,10 @@ function startSession() {
   phase1RoundsCompleted = 0;
   phase1Mode = 'singles';
   phase1SingleIndex = 0;
-  showScreen('phase1');
-  initPhase1();
+  runStageIntro(1, () => {
+    showScreen('phase1');
+    initPhase1();
+  });
 }
 
 /* ---------- Phase 1: drag “an” ---------- */
@@ -764,7 +839,7 @@ function createPhase1Card(entry, options) {
 
   const letter = document.createElement('p');
   letter.className =
-    'font-display shrink-0 font-black leading-none tracking-tight text-speller-ink [font-size:clamp(1rem,4.5vmin,2.25rem)]';
+    'font-display shrink-0 font-black leading-none tracking-tight text-speller-ink [font-size:clamp(2rem,9vmin,4.5rem)]';
   letter.textContent = first;
 
   const slot = document.createElement('div');
@@ -831,8 +906,23 @@ function initPhase1() {
     rebuildPhase1BankTiles(SESSION_SIZE);
   }
 
+  applyPhase1CardSlideIn();
+
   requestAnimationFrame(() => {
     requestAnimationFrame(() => startPhase1AnHint());
+  });
+}
+
+/** Staggered slide-down when phase 1 cards mount (singles or grid). */
+function applyPhase1CardSlideIn() {
+  const cards = [...els.phase1Grid.querySelectorAll('.phase1-card')];
+  if (!cards.length) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  requestAnimationFrame(() => {
+    cards.forEach((card, i) => {
+      card.style.setProperty('--phase1-card-i', String(i));
+      card.classList.add('phase1-card-enter');
+    });
   });
 }
 
@@ -843,7 +933,7 @@ function rebuildPhase1BankTiles(tileCount) {
   for (let i = 0; i < n; i++) {
     const tile = document.createElement('div');
     tile.className =
-      'drag-an-tile font-display flex min-h-0 w-min shrink-0 cursor-grab touch-none select-none items-center justify-center rounded-lg border-2 border-violet-400/90 bg-gradient-to-b from-violet-100 to-fuchsia-100 px-[clamp(0.22rem,1.2vmin,0.55rem)] py-[clamp(0.2rem,1vmin,0.5rem)] text-center font-black leading-none tracking-tight text-violet-800 shadow-soft [font-size:clamp(0.7rem,3vmin,1.45rem)] active:cursor-grabbing';
+      'drag-an-tile font-display flex min-h-0 w-min shrink-0 cursor-grab touch-none select-none items-center justify-center rounded-2xl border-4 border-violet-400/90 bg-gradient-to-b from-violet-100 to-fuchsia-100 px-[clamp(0.44rem,2.4vmin,1.1rem)] py-[clamp(0.4rem,2vmin,1rem)] text-center font-black leading-none tracking-tight text-violet-800 shadow-soft [font-size:clamp(1.4rem,6vmin,2.9rem)] active:cursor-grabbing';
     tile.textContent = suffix.toUpperCase();
     tile.dataset.placed = '';
     tile.setAttribute('role', 'button');
@@ -860,8 +950,13 @@ function finishPhase1SingleWord() {
     phase1SingleIndex += 1;
     if (phase1SingleIndex >= SESSION_SIZE) {
       phase1Mode = 'grid';
+      runStageIntro(2, () => {
+        showScreen('phase1');
+        initPhase1();
+      });
+    } else {
+      initPhase1();
     }
-    initPhase1();
   }, 800);
 }
 
@@ -927,22 +1022,15 @@ function phase1ShuffleAndReplay() {
 }
 
 /**
- * Grab offset inside the tile. Phase 1 uses transform:scale (not zoom); offsetX/Y on the
- * plain tile div still tracks the pointer when needed.
+ * Grab offset in viewport px from element border box top-left.
+ * Never use offsetX/offsetY: on touch (and some browsers) they are 0,0 when target === tile,
+ * which pins the floater’s top-left to the pointer and the chip appears far from the cursor.
  */
-function phase1DragGrabOffset(e, tile, rect) {
-  const dxRect = e.clientX - rect.left;
-  const dyRect = e.clientY - rect.top;
-  if (
-    e.target === tile &&
-    typeof e.offsetX === 'number' &&
-    typeof e.offsetY === 'number' &&
-    Number.isFinite(e.offsetX) &&
-    Number.isFinite(e.offsetY)
-  ) {
-    return { dx: e.offsetX, dy: e.offsetY };
-  }
-  return { dx: dxRect, dy: dyRect };
+function viewportGrabOffset(ev, rect) {
+  return {
+    dx: ev.clientX - rect.left,
+    dy: ev.clientY - rect.top,
+  };
 }
 
 /**
@@ -1011,7 +1099,7 @@ function attachAnTileDrag(tile) {
       stopPhase1AnHint();
       e.preventDefault();
       const r = tile.getBoundingClientRect();
-      const { dx, dy } = phase1DragGrabOffset(e, tile, r);
+      const { dx, dy } = viewportGrabOffset(e, r);
 
       const cs = window.getComputedStyle(tile);
       const floater = document.createElement('div');
@@ -1031,10 +1119,12 @@ function attachAnTileDrag(tile) {
         'justify-content:center',
         `width:${r.width}px`,
         `height:${r.height}px`,
+        `padding:${cs.padding}`,
         `font-family:${cs.fontFamily}`,
         `font-size:${cs.fontSize}`,
         `font-weight:${cs.fontWeight}`,
         `letter-spacing:${cs.letterSpacing}`,
+        `line-height:${cs.lineHeight}`,
         `border:${cs.border}`,
         `border-radius:${cs.borderRadius}`,
         `background-image:${cs.backgroundImage}`,
@@ -1070,8 +1160,10 @@ function finishPhase1() {
       stopPhase1AnHint();
       phase2Index = 0;
       phase2Mode = 'preview';
-      showScreen('phase2');
-      renderPhase2Word();
+      runStageIntro(3, () => {
+        showScreen('phase2');
+        renderPhase2Word();
+      });
     }
   }, 1400);
 }
@@ -1109,11 +1201,45 @@ function phase2OnCorrectLetter(L) {
   setTimeout(() => {
     phase2Index += 1;
     if (phase2Index >= SESSION_SIZE) {
-      showScreen('phaseBridge');
+      runStageIntro(4, () => {
+        wordIndex = 0;
+        showScreen('lesson');
+        showCurrentWord();
+      });
     } else {
       renderPhase2Word();
     }
   }, 650);
+}
+
+/** True if two viewport rects overlap or touch (axis-aligned), for generous drop targets. */
+function rectsOverlapViewport(a, b) {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+}
+
+/**
+ * Phase 2: purple letter chip touches purple dashed slot (geometry only — never pointer/cursor).
+ * Chip rect is inflated slightly; slot rect is expanded for small fingers.
+ */
+function phase2ChipTouchesDropSlot(chipRect, slotEl, padPx) {
+  if (!slotEl || slotEl.dataset.filled === '1') return false;
+  if (!chipRect || chipRect.width < 0.5 || chipRect.height < 0.5) return false;
+  const sr = slotEl.getBoundingClientRect();
+  const p = padPx == null ? 32 : padPx;
+  const chipPad = 14;
+  const slotHit = {
+    left: sr.left - p,
+    top: sr.top - p,
+    right: sr.right + p,
+    bottom: sr.bottom + p,
+  };
+  const chipHit = {
+    left: chipRect.left - chipPad,
+    top: chipRect.top - chipPad,
+    right: chipRect.right + chipPad,
+    bottom: chipRect.bottom + chipPad,
+  };
+  return rectsOverlapViewport(chipHit, slotHit);
 }
 
 /**
@@ -1149,6 +1275,8 @@ function attachPhase2LetterDrag(tile) {
     if (!phase2Drag || phase2Drag.tile !== tile || ev.pointerId !== phase2Drag.pointerId) return;
     ev.preventDefault();
     const { floater, dx, dy } = phase2Drag;
+    phase2Drag.lastX = ev.clientX;
+    phase2Drag.lastY = ev.clientY;
     floater.style.left = `${ev.clientX - dx}px`;
     floater.style.top = `${ev.clientY - dy}px`;
   };
@@ -1159,13 +1287,40 @@ function attachPhase2LetterDrag(tile) {
     window.removeEventListener('pointerup', end, true);
     window.removeEventListener('pointercancel', end, true);
 
-    const { floater } = phase2Drag;
-    if (floater && floater.parentNode) floater.remove();
+    const { floater, dx, dy, lastX, lastY, floatW, floatH } = phase2Drag;
+
+    /** Painted chip (what’s on screen) — read before moving/removing the floater. */
+    let paintedChip = null;
+    if (floater && floater.parentNode) {
+      paintedChip = floater.getBoundingClientRect();
+      floater.remove();
+    }
+
+    /** Chip from last pointer sample + same grab offset as on screen. */
+    const logicalChip =
+      typeof floatW === 'number' && typeof floatH === 'number'
+        ? {
+            left: lastX - dx,
+            top: lastY - dy,
+            right: lastX - dx + floatW,
+            bottom: lastY - dy + floatH,
+            width: floatW,
+            height: floatH,
+          }
+        : null;
+
+    try {
+      if (tile.hasPointerCapture?.(ev.pointerId)) tile.releasePointerCapture(ev.pointerId);
+    } catch (_) {
+      /* ignore */
+    }
 
     const L = tile.dataset.letter;
-    const stack = document.elementsFromPoint(ev.clientX, ev.clientY);
-    const slot = stack.find((el) => el.classList && el.classList.contains('phase2-drop-slot'));
-    const dropped = Boolean(slot && slot.dataset.filled !== '1');
+    const slotEl = els.phase2WordPrint.querySelector('.phase2-drop-slot');
+    const dropped =
+      Boolean(L) &&
+      (phase2ChipTouchesDropSlot(paintedChip, slotEl, 36) ||
+        phase2ChipTouchesDropSlot(logicalChip, slotEl, 36));
 
     if (dropped && L) {
       const ok = tryPhase2LetterPick(L, tile);
@@ -1184,11 +1339,11 @@ function attachPhase2LetterDrag(tile) {
       if (tile.classList.contains('pointer-events-none')) return;
       e.preventDefault();
       const r = tile.getBoundingClientRect();
-      const { dx, dy } = phase1DragGrabOffset(e, tile, r);
+      const { dx, dy } = viewportGrabOffset(e, r);
 
       const cs = window.getComputedStyle(tile);
       const floater = document.createElement('div');
-      floater.className = 'phase1-drag-floater';
+      floater.className = 'phase2-letter-drag-floater';
       floater.textContent = (tile.textContent || '').trim();
       floater.setAttribute('aria-hidden', 'true');
       floater.style.cssText = [
@@ -1204,14 +1359,17 @@ function attachPhase2LetterDrag(tile) {
         'justify-content:center',
         `width:${r.width}px`,
         `height:${r.height}px`,
+        `padding:${cs.padding}`,
+        `border:${cs.border}`,
+        `border-radius:${cs.borderRadius}`,
         `font-family:${cs.fontFamily}`,
         `font-size:${cs.fontSize}`,
         `font-weight:${cs.fontWeight}`,
         `letter-spacing:${cs.letterSpacing}`,
-        `border:${cs.border}`,
-        `border-radius:${cs.borderRadius}`,
+        `line-height:${cs.lineHeight}`,
         `background-color:${cs.backgroundColor}`,
         `color:${cs.color}`,
+        'transform:none',
         'pointer-events:none',
         'z-index:2147483646',
         'touch-action:none',
@@ -1221,7 +1379,25 @@ function attachPhase2LetterDrag(tile) {
       document.body.appendChild(floater);
       tile.style.visibility = 'hidden';
 
-      phase2Drag = { tile, floater, dx, dy, pointerId: e.pointerId, onMove, end };
+      phase2Drag = {
+        tile,
+        floater,
+        dx,
+        dy,
+        pointerId: e.pointerId,
+        lastX: e.clientX,
+        lastY: e.clientY,
+        floatW: r.width,
+        floatH: r.height,
+        onMove,
+        end,
+      };
+
+      try {
+        tile.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* ignore if capture unsupported */
+      }
 
       window.addEventListener('pointermove', onMove, { passive: false });
       window.addEventListener('pointerup', end, true);
@@ -1237,12 +1413,23 @@ function renderPhase2Word() {
 
   updatePhase2InstructionChrome();
 
-  els.phase2Image.classList.remove('hidden');
-  els.phase2Image.src = wordImagePath(w, 1);
-  els.phase2Image.alt = w;
-  els.phase2Image.onerror = () => {
-    els.phase2Image.classList.add('hidden');
+  const img = els.phase2Image;
+  img.classList.remove('hidden', 'phase2-image-spin-y-anim');
+  void img.offsetWidth;
+  img.src = wordImagePath(w, 1);
+  img.alt = w;
+  img.onerror = () => {
+    img.classList.add('hidden');
+    img.classList.remove('phase2-image-spin-y-anim');
   };
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reducedMotion) {
+    requestAnimationFrame(() => {
+      if (els.phase2.classList.contains('hidden')) return;
+      img.classList.add('phase2-image-spin-y-anim');
+    });
+  }
 
   renderWordBuild(w, els.phase2WordBuild, {
     showSignsVisible: true,
@@ -1276,7 +1463,7 @@ function renderPhase2Word() {
     clearTimeout(phase2AutoTimer);
     phase2AutoTimer = null;
   }
-  const pauseMs = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 280 : 600;
+  const pauseMs = reducedMotion ? 280 : Math.max(600, PHASE2_IMAGE_SPIN_MS + 200);
   phase2AutoTimer = setTimeout(() => beginPhase2LetterPick(), pauseMs);
 }
 
@@ -1313,12 +1500,6 @@ function beginPhase2LetterPick() {
 function onPhase2LetterPick(L) {
   tryPhase2LetterPick(L, null);
 }
-
-els.btnPhaseBridge.addEventListener('click', () => {
-  wordIndex = 0;
-  showScreen('lesson');
-  showCurrentWord();
-});
 
 els.btnStart.addEventListener('click', startSession);
 els.suffixInput.addEventListener('keydown', (e) => {
